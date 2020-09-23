@@ -48,3 +48,33 @@
       or inventory_hostname in groups.get(mds_group_name, [])
       or inventory_hostname in groups.get(rgw_group_name, [])
       or inventory_hostname in groups.get(rbdmirror_group_name, [])
+
+- name: rgw multi-instances related tasks
+  when: inventory_hostname in groups.get(rgw_group_name, [])
+  block:
+    - name: import_role ceph-config
+      import_role:
+        name: ceph-config
+        tasks_from: rgw_systemd_environment_file.yml
+
+    - name: create rgw keyrings
+      ceph_key:
+        name: "client.rgw.{{ ansible_hostname }}.{{ item.instance_name }}"
+        cluster: "{{ cluster }}"
+        user: "client.bootstrap-rgw"
+        user_key: /var/lib/ceph/bootstrap-rgw/{{ cluster }}.keyring
+        dest: "/var/lib/ceph/radosgw/{{ cluster }}-rgw.{{ ansible_hostname }}.{{ item.instance_name }}/keyring"
+        caps:
+          osd: 'allow rwx'
+          mon: 'allow rw'
+          import_key: False
+        owner: "{{ ceph_uid if containerized_deployment else 'ceph' }}"
+        group: "{{ ceph_uid if containerized_deployment else 'ceph' }}"
+        mode: "0400"
+      environment:
+        CEPH_CONTAINER_IMAGE: "{{ ceph_docker_registry + '/' + ceph_docker_image + ':' + ceph_docker_image_tag if containerized_deployment else None }}"
+        CEPH_CONTAINER_BINARY: "{{ container_binary }}"
+      with_items: "{{ rgw_instances }}"
+      when:
+        - rgw_instances is defined
+        - handler_rgw_status | bool
